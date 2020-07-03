@@ -17,6 +17,13 @@
 package org.apache.rocketmq.remoting.protocol;
 
 import com.alibaba.fastjson.annotation.JSONField;
+import org.apache.rocketmq.logging.InternalLogger;
+import org.apache.rocketmq.logging.InternalLoggerFactory;
+import org.apache.rocketmq.remoting.CommandCustomHeader;
+import org.apache.rocketmq.remoting.annotation.CFNotNull;
+import org.apache.rocketmq.remoting.common.RemotingHelper;
+import org.apache.rocketmq.remoting.exception.RemotingCommandException;
+
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -24,12 +31,6 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.rocketmq.remoting.CommandCustomHeader;
-import org.apache.rocketmq.remoting.annotation.CFNotNull;
-import org.apache.rocketmq.remoting.common.RemotingHelper;
-import org.apache.rocketmq.remoting.exception.RemotingCommandException;
-import org.apache.rocketmq.logging.InternalLogger;
-import org.apache.rocketmq.logging.InternalLoggerFactory;
 
 public class RemotingCommand {
     public static final String SERIALIZE_TYPE_PROPERTY = "rocketmq.serialize.type";
@@ -72,6 +73,7 @@ public class RemotingCommand {
     private int code;
     private LanguageCode language = LanguageCode.JAVA;
     private int version = 0;
+    // 每次创i实例，opaque都会自增
     private int opaque = requestId.getAndIncrement();
     private int flag = 0;
     private String remark;
@@ -208,6 +210,14 @@ public class RemotingCommand {
         return true;
     }
 
+    /**
+     * 返回四个字节
+     * 第一个字节是序列化的类型
+     * 后面三个字节表示source
+     * @param source    长度
+     * @param type  JSON或者ROCKETMQ
+     * @return
+     */
     public static byte[] markProtocolType(int source, SerializeType type) {
         byte[] result = new byte[4];
 
@@ -338,19 +348,24 @@ public class RemotingCommand {
             length += body.length;
         }
 
+        // 分配一个空buffer
         ByteBuffer result = ByteBuffer.allocate(4 + length);
 
         // length
+        // 写入总长度，占用四个字节，一个int类型
         result.putInt(length);
 
         // header length
+        // markProtocolType方法返回四个字节，因此buffer写入四个字节
         result.put(markProtocolType(headerData.length, serializeTypeCurrentRPC));
 
         // header data
+        // 写入消息头数据，长度不定
         result.put(headerData);
 
         // body data;
         if (this.body != null) {
+            // 写入消息体数据，长度不定
             result.put(this.body);
         }
 

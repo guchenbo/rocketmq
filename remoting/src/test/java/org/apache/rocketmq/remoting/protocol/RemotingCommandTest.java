@@ -14,15 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.rocketmq.remoting.protocol;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
 import org.apache.rocketmq.remoting.CommandCustomHeader;
 import org.apache.rocketmq.remoting.annotation.CFNotNull;
 import org.apache.rocketmq.remoting.exception.RemotingCommandException;
 import org.junit.Test;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,7 +35,7 @@ public class RemotingCommandTest {
         int source = 261;
         SerializeType type = SerializeType.JSON;
         byte[] result = RemotingCommand.markProtocolType(source, type);
-        assertThat(result).isEqualTo(new byte[] {0, 0, 1, 5});
+        assertThat(result).isEqualTo(new byte[] { 0, 0, 1, 5 });
     }
 
     @Test
@@ -40,7 +43,7 @@ public class RemotingCommandTest {
         int source = 16777215;
         SerializeType type = SerializeType.ROCKETMQ;
         byte[] result = RemotingCommand.markProtocolType(source, type);
-        assertThat(result).isEqualTo(new byte[] {1, -1, -1, -1});
+        assertThat(result).isEqualTo(new byte[] { 1, -1, -1, -1 });
     }
 
     @Test
@@ -50,6 +53,8 @@ public class RemotingCommandTest {
         int code = 103; //org.apache.rocketmq.common.protocol.RequestCode.REGISTER_BROKER
         CommandCustomHeader header = new SampleCommandCustomHeader();
         RemotingCommand cmd = RemotingCommand.createRequestCommand(code, header);
+        RemotingCommand cmd2 = RemotingCommand.createRequestCommand(code, header);
+        RemotingCommand cmd3 = RemotingCommand.createRequestCommand(code, header);
         assertThat(cmd.getCode()).isEqualTo(code);
         assertThat(cmd.getVersion()).isEqualTo(2333);
         assertThat(cmd.getFlag() & 0x01).isEqualTo(0); //flag bit 0: 0 presents request
@@ -131,7 +136,7 @@ public class RemotingCommandTest {
         int code = 103; //org.apache.rocketmq.common.protocol.RequestCode.REGISTER_BROKER
         CommandCustomHeader header = new SampleCommandCustomHeader();
         RemotingCommand cmd = RemotingCommand.createRequestCommand(code, header);
-        cmd.setBody(new byte[] {0, 1, 2, 3, 4});
+        cmd.setBody(new byte[] { 0, 1, 2, 3, 4 });
 
         ByteBuffer buffer = cmd.encode();
 
@@ -144,7 +149,7 @@ public class RemotingCommandTest {
         RemotingCommand decodedCommand = RemotingCommand.decode(buffer);
 
         assertThat(decodedCommand.getSerializeTypeCurrentRPC()).isEqualTo(SerializeType.JSON);
-        assertThat(decodedCommand.getBody()).isEqualTo(new byte[] {0, 1, 2, 3, 4});
+        assertThat(decodedCommand.getBody()).isEqualTo(new byte[] { 0, 1, 2, 3, 4 });
     }
 
     @Test
@@ -198,6 +203,52 @@ public class RemotingCommandTest {
         Field value = FieldTestClass.class.getDeclaredField("value");
         assertThat(method.invoke(remotingCommand, value)).isEqualTo(false);
     }
+
+    @Test
+    public void testRpcRequest() {
+        RemotingCommand command = new RemotingCommand();
+        System.out.println(command.isOnewayRPC());
+        command.markOnewayRPC();
+        System.out.println(command.isOnewayRPC());
+        System.out.println(command.isResponseType());
+        command.markResponseType();
+        System.out.println(command.isResponseType());
+    }
+
+    @Test
+    public void testEncode() {
+        System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, "123456");
+        CommandCustomHeader header = new SampleCommandCustomHeader();
+        int code = 103;
+        RemotingCommand command = RemotingCommand.createRequestCommand(code, header);
+        command.encode();
+    }
+
+    @Test
+    public void testCommon() throws RemotingCommandException {
+        CommandCustomHeader header = new SampleCommandCustomHeader();
+        String sBody = "broker向NameServer注册信息";
+        RemotingCommand command = RemotingCommand.createRequestCommand(103, header);
+        command.setBody(sBody.getBytes(Charset.forName("UTF-8")));
+        command.setFlag(3);
+        command.setRemark("我是额外信息");
+
+        ByteBuffer buffer = command.encode();
+        // NettyDecoder 会先读取前面4个字节到长度
+        int len = buffer.getInt();//这里已经读了4个字节
+        byte[] bs = new byte[len];
+        buffer.get(bs);//这里可以全部读到数组中
+
+        RemotingCommand response = RemotingCommand.decode(bs);
+        assertThat(new String(response.getBody(), Charset.forName("UTF-8"))).isEqualTo(sBody);
+        System.out.println(response.getRemark());
+        System.out.println(response.getFlag());
+
+        System.out.println(response.getExtFields().get("name"));
+
+        SampleCommandCustomHeader header2 = (SampleCommandCustomHeader) response.decodeCommandCustomHeader(SampleCommandCustomHeader.class);
+        System.out.println(header2.getName());
+    }
 }
 
 class FieldTestClass {
@@ -211,6 +262,16 @@ class FieldTestClass {
 }
 
 class SampleCommandCustomHeader implements CommandCustomHeader {
+    private String name = "simple";
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
     @Override
     public void checkFields() throws RemotingCommandException {
     }
